@@ -1,0 +1,172 @@
+---
+title: "Is There Gender Bias In Philosophical Texts?"
+author: "Dipesh Patel"
+date: "10/6/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message=FALSE)
+```
+
+This project was conducted with these R environmental settings.
+
+```{r}
+print(R.version)
+```
+
+```{r}
+packages.used = c("tidyverse", "tidytext")
+packages.needed = setdiff(packages.used, intersect(installed.packages()[, 1], packages.used))
+
+if (length(packages.needed) > 0) {
+  install.packages(packages.needed, dependencies = TRUE)
+}
+
+# load packages
+library(tidyverse)
+library(tidytext)
+```
+
+We are interested in how pronouns have been used throughout the history of philosophy. We have a collection of historical texts that we will analyze for this purpose. Each text is organized in one sentence per row format. In order to facilitate efficient analysis we change the structure of the data into one word per row format.
+
+```{r}
+# load the data
+raw_data <- read_csv("../data/philosophy_data.csv")
+
+# remove unnecessary variables and add sentence number for each title
+tokenized <- raw_data %>%
+  dplyr::select(-4, -5, -7, -9, -11) %>%
+  group_by(title) %>%
+  mutate(sentence = row_number()) %>%
+  ungroup()
+
+# put into tidy format with one word per row
+tokenized_tidy <- tokenized %>%
+  unnest_tokens(word, tokenized_txt)
+```
+
+We include all but indefinite pronouns to simplify analysis since there are very many of these kinds of pronouns.
+
+```{r}
+# list of pronouns
+personal_pronouns <- c("i", "we", "you", "he", "she", "it", "they")
+object_pronouns <- c("me", "us", "you", "her", "him", "it", "them")
+possessive_pronouns <- c("mine", "ours", "yours", "hers", "his", "theirs")
+possessive_adjectives <- c("my", "our", "your", "her", "his", "their")
+reflexive_pronouns <- c("myself", "yourself", "herself", "himself", "itself", "ourselves",
+                        "yourselves", "themselves")
+archaic_pronouns <- c("thou", "thee", "thy", "thine", "ye")
+
+pronouns <- c(personal_pronouns, object_pronouns, possessive_pronouns,
+              possessive_adjectives, reflexive_pronouns, archaic_pronouns)
+```
+
+We can clearly see that "it" is the most commonly used pronoun. However, it is interesting to note how much more frequently versions of the "he" pronoun are used in comparison to "she". We inspect this further.
+
+```{r}
+# count pronouns
+pronouns_df <- tokenized_tidy %>%
+  filter(word %in% pronouns) %>%
+  count(word) %>%
+  arrange(desc(n))
+
+pronouns_df
+```
+
+The barchart confirms that "he" pronouns are used much more frequently than "she" pronouns. There is a bias that is present towards more male associated pronouns in these philosophical texts.
+
+```{r}
+# convert all "he"/"she" pronoun variations to "he"/"she" respectively
+heshe_df <- tokenized_tidy %>%
+  mutate(word = ifelse(word %in% c("he", "him", "his", "himself"), "he", word)) %>%
+  mutate(word = ifelse(word %in% c("she", "her", "hers", "herself"), "she", word))
+
+# create barchart of count
+ggplot(heshe_df %>% filter(word %in% c("he", "she"))) +
+  geom_bar(mapping = aes(x = word)) +
+  labs(title = "Pronoun Usage")
+```
+Inspecting further, we see that almost all the authors use each pronoun similar save for several of them such as Beauvoir, Davis, and Wollstonecraft. More resolution will be provided comparing the ratios of he and she usage.
+
+```{r}
+author_school_df <- heshe_df %>%
+  group_by(school, author, word) %>%
+  summarise(count = n()) %>%
+  mutate(prop = count / sum(count)) %>%
+  ungroup() %>%
+  filter(word %in% c("he", "she"))
+
+ggplot(author_school_df) +
+  geom_point(aes(x = prop, y = author, color = word)) +
+  labs(title = "Pronoun Usage by Author Relative to Total Word Count")
+```  
+The dotplot reveals that the only two authors who mention she pronouns more frequently than he pronouns are Beauvoir and Davis. Wollstonecraft is about even. However these three authors are not surprising since they belong to the feminism school.
+
+```{r}
+# dot plot of ratio of "she"/"he" usage compared to overall by author
+# edge point symbolizes infinity
+author_school_df %>%
+  group_by(author, word) %>%
+  summarise(count = sum(count)) %>%
+  ungroup() %>%
+  add_row(author = "Moore", word = "she", count = 0, .after = 51) %>%
+  group_by(author) %>%
+  summarise(ratio_shehe = count[[2]]/count[[1]]) %>%
+  ggplot() +
+  geom_point(aes(x = ratio_shehe, y = author)) +
+  labs(title = "Ratio of She/He Usage by Author",
+       x = "ratio")
+```
+
+This is made clear in the dotplot by school where feminism is the only school that mentions she more than he. However this is to be expected since this school deals with issues facing woman. For the other school presumably there should be an even split since they are not concerned with gender.
+
+```{r}
+# dot plot of ratio of "she"/"he" usage compared to overall by school
+author_school_df %>%
+  group_by(school, word) %>%
+  summarise(count = sum(count)) %>%
+  summarise(ratio_shehe = count[[2]]/count[[1]]) %>%
+  ggplot() +
+  geom_point(aes(x = ratio_shehe, y = school)) +
+  labs(title = "Ratio of She/He Usage by School",
+       x = "ratio")
+```
+
+```{r}
+# proportional usage of "he"/"she" compared to total "he"/"she" usage by school and time
+school_time_df <- heshe_df %>%
+  filter(word %in% c("he", "she")) %>%
+  group_by(school, original_publication_date, word) %>%
+  summarise(count = n()) %>%
+  mutate(prop = count / sum(count))
+```
+
+Maybe there is progress being made towards a more even split of usage over time for each school. Of note she is used much more frequently over time in feminism. However, there is no clear pattern towards an even split in the other schools over time.
+
+```{r}
+# three separate plots for better resolution
+# dotplot of "she" usage by school and time to see change over time for each school
+school_time_df %>%
+  filter(word == "she", school == "feminism") %>%
+  ggplot() +
+  geom_point(aes(x = original_publication_date, y = prop)) +
+  labs(title = "Change in She Usage Over Time by School (Feminism)")
+
+school_time_df %>%
+  filter(word == "she", school %in% c("aristotle", "plato", "stoicism")) %>%
+  ggplot() +
+  geom_point(aes(x = original_publication_date, y = prop)) +
+  facet_wrap(~school) +
+  labs(title = "Change in She Usage Over Time by School")
+
+school_time_df %>%
+  filter(word == "she", school != "aristotle", school != "plato",
+         school != "stoicism", school != "feminism") %>%
+  ggplot() +
+  geom_point(aes(x = original_publication_date, y = prop)) +
+  facet_wrap(~school) +
+  labs(title = "Change in She Usage Over Time by School")
+```
+
+Ultimately, we conclude that yes there is a gender bias towards male associated pronouns throughout the history of philosophy.
